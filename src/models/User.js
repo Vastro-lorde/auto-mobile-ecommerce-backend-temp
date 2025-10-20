@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const env = require('../config/env');
 const {
   USER_ROLES,
   AGENT_DEPARTMENTS,
@@ -274,10 +275,14 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Instance method to generate JWT auth token
 userSchema.methods.generateAuthToken = function() {
+  if (!env.jwt.secret) {
+    throw new Error('JWT secret is not configured. Set JWT_SECRET in your environment variables.');
+  }
+
   return jwt.sign(
     { id: this._id },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    env.jwt.secret,
+    { expiresIn: env.jwt.expiresIn }
   );
 };
 

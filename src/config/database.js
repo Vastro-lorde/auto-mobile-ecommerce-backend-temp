@@ -1,11 +1,20 @@
 const mongoose = require('mongoose');
+const env = require('./env');
 
 const connectDB = async () => {
   try {
     console.log('🔗 Attempting MongoDB connection...');
-    console.log('📍 MongoDB URI:', process.env.MONGODB_URI ? 'Set' : 'NOT SET');
+    console.log('📍 MongoDB URI:', env.database.uri ? 'Set' : 'NOT SET');
     
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
+    if (!env.database.uri) {
+      throw new Error('MongoDB connection string is missing. Set MONGODB_URI in your environment variables.');
+    }
+
+    if (env.database.debug) {
+      mongoose.set('debug', true);
+    }
+
+    const conn = await mongoose.connect(env.database.uri);
 
     console.log(`🍃 MongoDB Connected: ${conn.connection.host}`);
 

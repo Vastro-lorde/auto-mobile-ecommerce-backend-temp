@@ -1,7 +1,8 @@
 const swaggerJSDoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const env = require('./env');
 
-const API_BASE_PATH = process.env.API_BASE_PATH || '/api';
+const API_BASE_PATH = env.app.basePath || '/api';
 const normalizeVersion = (version) => {
   if (!version) {
     return 'v1';
@@ -12,7 +13,7 @@ const normalizeVersion = (version) => {
     : `v${version}`.toLowerCase();
 };
 
-const API_VERSION = normalizeVersion(process.env.API_VERSION || 'v1');
+const API_VERSION = normalizeVersion(env.app.version || 'v1');
 
 const getServerUrl = (baseUrl) => {
   const sanitizedBase = baseUrl.replace(/\/$/, '');
@@ -24,21 +25,21 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'CarKobo API',
+  title: `${env.productName} API`,
       version: API_VERSION,
       description: 'Car Marketplace API built with Node.js, Express.js and MongoDB',
       contact: {
-        name: 'CarKobo Team',
-        email: 'support@carkobo.com'
+  name: `${env.productName} Team`,
+  email: 'support@car-ecommerce.com'
       }
     },
     servers: [
       {
-        url: getServerUrl(`http://localhost:${process.env.PORT || 5000}`),
+        url: getServerUrl(`http://localhost:${env.app.port}`),
         description: 'Development server'
       },
       {
-        url: getServerUrl('https://api.carkobo.com'),
+        url: getServerUrl('https://api.car-ecommerce.com'),
         description: 'Production server'
       }
     ],
@@ -70,7 +71,7 @@ const setupSwagger = (app) => {
   const swaggerUiOptions = {
     explorer: true,
     customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: 'CarKobo API Documentation'
+  customSiteTitle: `${env.productName} API Documentation`
   };
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerUiOptions));

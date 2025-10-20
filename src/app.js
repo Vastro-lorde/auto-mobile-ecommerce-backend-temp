@@ -12,6 +12,7 @@ const { registerRoutes } = require('./routes');
 // Import middleware
 const globalErrorHandler = require('./middleware/errorHandler');
 const { setupSwagger } = require('./config/swagger');
+const env = require('./config/env');
 
 const app = express();
 
@@ -25,36 +26,29 @@ app.use(helmet({
 
 // CORS configuration
 const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://carkobo.com',
-      'https://carkobo.netlify.app',
-      'https://techxon.carkobo.com'
-    ];
-    
+  origin(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    if (!origin) {
+      return callback(null, true);
     }
+
+    if (env.cors.allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  credentials: env.cors.allowCredentials,
+  methods: env.cors.methods,
+  allowedHeaders: env.cors.allowedHeaders
 };
 
 app.use(cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  windowMs: env.rateLimit.windowMs,
+  max: env.rateLimit.maxRequests,
   message: {
     error: 'Too many requests from this IP, please try again later.'
   },
@@ -62,13 +56,13 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use('/api/', limiter);
+app.use(`${env.app.basePath}/`, limiter);
 
 // Compression middleware
 app.use(compression());
 
 // Logging middleware
-if (process.env.NODE_ENV === 'development') {
+if (env.nodeEnv === 'development') {
   app.use(morgan('dev'));
 } else {
   app.use(morgan('combined'));
@@ -92,9 +86,9 @@ try {
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'CarKobo API is running',
+  message: `${env.productName} API is running`,
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: env.nodeEnv
   });
 });
 

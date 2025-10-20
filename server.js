@@ -1,18 +1,14 @@
-const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const path = require('path');
 
-// Load environment variables from specific path
-require('dotenv').config({ 
-  path: path.join(__dirname, '.env')
-});
+const env = require('./src/config/env');
+const express = require('express');
 
 console.log('🔧 Environment check:');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('PORT:', process.env.PORT);
-console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
-console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
+console.log('NODE_ENV:', env.nodeEnv);
+console.log('PORT:', env.app.port);
+console.log('MONGODB_URI exists:', Boolean(env.database.uri));
+console.log('JWT_SECRET exists:', Boolean(env.jwt.secret));
 
 const app = require('./src/app');
 const { connectDB } = require('./src/config/database');
@@ -22,15 +18,16 @@ const socketHandler = require('./src/utils/socketHandler');
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: env.cors.allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: env.cors.allowCredentials
   }
 });
 
 // Handle Socket.io connections
 socketHandler.init(io);
 
-const PORT = process.env.PORT || 5000;
+const PORT = env.app.port;
 
 // Connect to MongoDB and start server
 const startServer = async () => {

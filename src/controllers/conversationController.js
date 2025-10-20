@@ -6,6 +6,11 @@ const {
   NOTIFICATION_PRIORITIES
 } = require('../utils/enums/notificationEnums');
 const notificationService = require('../services/notificationService');
+const {
+  emitConversationMessage,
+  emitConversationUpdated,
+  emitConversationRead
+} = require('../utils/socketHandler');
 const { asyncHandler, AppError } = require('../middleware/errorHandler');
 
 const formatParticipant = (participantDoc) => {
@@ -58,6 +63,54 @@ const formatMessage = (messageDoc, readSet, currentUserId) => {
     updatedAt: message.updatedAt,
     sender: formatParticipant(messageDoc.sender),
     isRead: senderId === currentUserId || readSet.has((message._id || message.id).toString())
+  };
+};
+
+const safeEmit = (label, fn) => {
+  try {
+    fn();
+  } catch (error) {
+    console.warn(`${label} emit failed:`, error.message);
+  }
+};
+
+const toParticipantIds = (participants = []) => participants
+  .map((participant) => {
+    if (!participant) {
+      return null;
+    }
+
+    if (typeof participant === 'string') {
+      return participant;
+    }
+
+    if (participant._id) {
+      return participant._id.toString();
+    }
+
+    if (typeof participant.toString === 'function') {
+      return participant.toString();
+    }
+
+    return null;
+  })
+  .filter(Boolean);
+
+const buildConversationBroadcastPayload = (conversation) => {
+  if (!conversation) {
+    return null;
+  }
+
+  const lastMessage = Array.isArray(conversation.messages) && conversation.messages.length
+    ? conversation.messages[0]
+    : null;
+
+  return {
+    id: conversation.id,
+    participants: conversation.participants,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    lastMessage
   };
 };
 
@@ -385,20 +438,52 @@ exports.startConversation = asyncHandler(async (req, res) => {
   });
 
   let created = false;
+  let initialFormattedMessage = null;
+  const unreadChanges = {};
 
   if (!conversation) {
     conversation = await Conversation.create({ participants: [userId, recipientId] });
     created = true;
   }
 
+  const participantIds = toParticipantIds(conversation.participants);
+
   if (initialMessage) {
-    await Message.create({
+    const messageDoc = await Message.create({
       conversation: conversation._id,
       sender: userId,
       content: initialMessage
     });
     conversation.updatedAt = new Date();
     await conversation.save();
+
+    const populatedMessage = await Message.findById(messageDoc._id)
+      .populate({
+        path: 'sender',
+        select: 'email role profile googlePicture displayName fullName'
+      })
+      .exec();
+
+    const readSet = new Set([messageDoc._id.toString()]);
+    initialFormattedMessage = formatMessage(populatedMessage, readSet, userId);
+
+    safeEmit('conversationMessage', () => {
+      emitConversationMessage(
+        conversation._id,
+        participantIds,
+        initialFormattedMessage,
+        {
+          senderId: userId,
+          isInitial: true
+        }
+      );
+    });
+
+    participantIds.forEach((id) => {
+      if (id !== userId) {
+        unreadChanges[id] = (unreadChanges[id] || 0) + 1;
+      }
+    });
 
     try {
       await notificationService.createNotification({
@@ -417,6 +502,32 @@ exports.startConversation = asyncHandler(async (req, res) => {
   }
 
   const detailedConversation = await loadConversationDetail(conversation._id, userId);
+  const broadcastConversation = buildConversationBroadcastPayload(detailedConversation);
+
+  const updatePayload = {
+    created,
+    conversation: broadcastConversation,
+    updatedAt: initialFormattedMessage?.createdAt || broadcastConversation?.updatedAt,
+    lastMessage: initialFormattedMessage || broadcastConversation?.lastMessage || null
+  };
+
+  if (!updatePayload.conversation) {
+    updatePayload.conversation = {
+      id: conversation._id.toString(),
+      participants: detailedConversation?.participants || [],
+      createdAt: detailedConversation?.createdAt,
+      updatedAt: detailedConversation?.updatedAt,
+      lastMessage: updatePayload.lastMessage
+    };
+  }
+
+  if (Object.keys(unreadChanges).length) {
+    updatePayload.unreadChanges = unreadChanges;
+  }
+
+  safeEmit('conversationUpdated', () => {
+    emitConversationUpdated(conversation._id, participantIds, updatePayload);
+  });
 
   res.status(created ? 201 : 200).json({
     success: true,
@@ -451,6 +562,8 @@ exports.createMessage = asyncHandler(async (req, res) => {
     throw new AppError('Conversation not found', 404);
   }
 
+  const participantIds = toParticipantIds(conversation.participants);
+
   const message = await Message.create({
     conversation: conversation._id,
     sender: userId,
@@ -469,6 +582,32 @@ exports.createMessage = asyncHandler(async (req, res) => {
   const readSet = new Set([message._id.toString()]);
 
   const formatted = formatMessage(populatedMessage, readSet, userId);
+
+  const unreadChanges = {};
+  participantIds.forEach((id) => {
+    if (id !== userId) {
+      unreadChanges[id] = (unreadChanges[id] || 0) + 1;
+    }
+  });
+
+  safeEmit('conversationMessage', () => {
+    emitConversationMessage(conversation._id, participantIds, formatted, {
+      senderId: userId
+    });
+  });
+
+  const updatePayload = {
+    lastMessage: formatted,
+    updatedAt: formatted.createdAt
+  };
+
+  if (Object.keys(unreadChanges).length) {
+    updatePayload.unreadChanges = unreadChanges;
+  }
+
+  safeEmit('conversationUpdated', () => {
+    emitConversationUpdated(conversation._id, participantIds, updatePayload);
+  });
 
   const recipientId = conversation.participants
     .map((participant) => participant._id.toString())
@@ -519,6 +658,8 @@ exports.markConversationRead = asyncHandler(async (req, res) => {
     throw new AppError('Conversation not found', 404);
   }
 
+  const participantIds = toParticipantIds(conversation.participants);
+
   const messages = await Message.find({
     conversation: conversation._id,
     sender: { $ne: userId }
@@ -556,6 +697,31 @@ exports.markConversationRead = asyncHandler(async (req, res) => {
         throw error;
       }
     }
+  }
+
+  const markedIds = unreadMessages.map((id) => id.toString());
+  const otherParticipantIds = participantIds.filter((participantId) => participantId !== userId);
+
+  if (markedIds.length) {
+    safeEmit('conversationRead', () => {
+      emitConversationRead(conversation._id, otherParticipantIds, {
+        readerId: userId,
+        messageIds: markedIds,
+        markedCount: unreadMessages.length
+      });
+    });
+
+    const unreadChanges = { [userId]: -unreadMessages.length };
+    const lastReadAt = new Date().toISOString();
+
+    safeEmit('conversationUpdated', () => {
+      emitConversationUpdated(conversation._id, participantIds, {
+        unreadChanges,
+        readerId: userId,
+        markedCount: unreadMessages.length,
+        lastReadAt
+      });
+    });
   }
 
   res.json({

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const env = require('../config/env');
 
 const auth = async (req, res, next) => {
   try {
@@ -12,7 +13,14 @@ const auth = async (req, res, next) => {
       });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!env.jwt.secret) {
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication configuration error. JWT secret is missing.'
+      });
+    }
+
+    const decoded = jwt.verify(token, env.jwt.secret);
     
     // Check if user still exists
     const user = await User.findById(decoded.id);
@@ -47,8 +55,8 @@ const auth = async (req, res, next) => {
     } else {
       return res.status(500).json({
         success: false,
-        message: 'Authentication error.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+  message: 'Authentication error.',
+  error: env.nodeEnv === 'development' ? error.message : undefined
       });
     }
   }
@@ -60,7 +68,11 @@ const optionalAuth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (!env.jwt.secret) {
+        return next();
+      }
+
+      const decoded = jwt.verify(token, env.jwt.secret);
       const user = await User.findById(decoded.id);
       
       if (user && user.isActive && !user.isSoftDeleted) {
@@ -138,14 +150,18 @@ const requireWriteAccess = (req, res, next) => {
 const generateToken = (userId) => {
   return jwt.sign(
     { id: userId },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    env.jwt.secret,
+    { expiresIn: env.jwt.expiresIn }
   );
 };
 
 // Verify JWT token
 const verifyToken = (token) => {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  if (!env.jwt.secret) {
+    throw new Error('JWT secret is not configured.');
+  }
+
+  return jwt.verify(token, env.jwt.secret);
 };
 
 module.exports = {

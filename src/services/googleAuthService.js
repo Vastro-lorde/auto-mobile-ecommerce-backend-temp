@@ -1,11 +1,12 @@
 const { OAuth2Client } = require('google-auth-library');
+const env = require('../config/env');
 
 class GoogleAuthService {
   constructor() {
     this.client = new OAuth2Client(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_CALLBACK_URL
+      env.google.clientId,
+      env.google.clientSecret,
+      env.google.redirectUri
     );
   }
 
@@ -30,7 +31,7 @@ class GoogleAuthService {
     try {
       const ticket = await this.client.verifyIdToken({
         idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: env.google.clientId,
       });
 
       const payload = ticket.getPayload();
@@ -59,7 +60,7 @@ class GoogleAuthService {
       // Get user info
       const ticket = await this.client.verifyIdToken({
         idToken: tokens.id_token,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: env.google.clientId,
       });
 
       const payload = ticket.getPayload();

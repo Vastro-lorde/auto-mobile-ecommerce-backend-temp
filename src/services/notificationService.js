@@ -225,6 +225,8 @@ const updateNotification = async (user, notificationId, data) => {
       throw new AppError('Notification not found', 404);
     }
 
+    const previousIsRead = notification.isRead;
+
     const fieldMap = {
       title: ['title'],
       message: ['message'],
@@ -239,7 +241,12 @@ const updateNotification = async (user, notificationId, data) => {
     Object.entries(fieldMap).forEach(([field, aliases]) => {
       const value = aliases.map((alias) => data[alias]).find((val) => val !== undefined);
       if (value !== undefined) {
-        notification[field] = value;
+        if (field === 'isRead') {
+          const parsed = toBoolean(value);
+          notification[field] = parsed !== undefined ? parsed : value;
+        } else {
+          notification[field] = value;
+        }
       }
     });
 
@@ -261,9 +268,17 @@ const updateNotification = async (user, notificationId, data) => {
 
     await notification.save();
 
+    const formattedNotification = formatNotification(notification);
+
+    emitSafe(emitNotificationUpdated, user._id, formattedNotification);
+
+    if (previousIsRead !== notification.isRead) {
+      await broadcastUnreadCount(user._id);
+    }
+
     return {
       success: true,
-      notification: formatNotification(notification)
+      notification: formattedNotification
     };
   } catch (error) {
     throw error;
@@ -281,6 +296,9 @@ const deleteNotification = async (user, notificationId) => {
     if (!notification) {
       throw new AppError('Notification not found', 404);
     }
+
+    emitSafe(emitNotificationDeleted, user._id, notificationId);
+    await broadcastUnreadCount(user._id);
 
     return {
       success: true,
@@ -303,13 +321,23 @@ const markNotificationRead = async (user, notificationId) => {
       throw new AppError('Notification not found', 404);
     }
 
+    const wasRead = notification.isRead;
+
     notification.isRead = true;
     notification.readAt = new Date();
     await notification.save();
 
+    const formattedNotification = formatNotification(notification);
+
+    emitSafe(emitNotificationUpdated, user._id, formattedNotification);
+
+    if (!wasRead) {
+      await broadcastUnreadCount(user._id);
+    }
+
     return {
       success: true,
-      notification: formatNotification(notification)
+      notification: formattedNotification
     };
   } catch (error) {
     throw error;
@@ -323,10 +351,17 @@ const markAllNotificationsRead = async (user) => {
       { $set: { isRead: true, readAt: new Date() } }
     );
 
+    const updated = result.modifiedCount || 0;
+
+    if (updated > 0) {
+      emitSafe(emitNotificationsRefresh, user._id, { reason: 'markAllRead' });
+      await broadcastUnreadCount(user._id);
+    }
+
     return {
       success: true,
-      updated: result.modifiedCount || 0,
-      message: `${result.modifiedCount || 0} notifications marked as read`
+      updated,
+      message: `${updated} notifications marked as read`
     };
   } catch (error) {
     throw error;
@@ -343,44 +378,72 @@ const bulkNotificationAction = async (user, payload) => {
     }
 
     const baseQuery = { user: user._id };
+    const objectIds = [];
+    const normalizedIds = [];
 
     if (notificationIds.length) {
-      const validIds = notificationIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
-      if (!validIds.length) {
+      notificationIds.forEach((id) => {
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          const objectId = new mongoose.Types.ObjectId(id);
+          objectIds.push(objectId);
+          normalizedIds.push(objectId.toString());
+        }
+      });
+
+      if (!objectIds.length) {
         throw new AppError('No valid notification IDs provided', 400);
       }
-      baseQuery._id = { $in: validIds };
+
+      baseQuery._id = { $in: objectIds };
     }
 
     if (action === 'delete') {
       const result = await Notification.deleteMany(baseQuery);
+      const deleted = result.deletedCount || 0;
+
+      if (deleted > 0) {
+        if (normalizedIds.length && normalizedIds.length <= 20) {
+          normalizedIds.forEach((id) => emitSafe(emitNotificationDeleted, user._id, id));
+        }
+
+        emitSafe(emitNotificationsRefresh, user._id, {
+          reason: 'bulk',
+          action,
+          notificationIds: normalizedIds
+        });
+
+        await broadcastUnreadCount(user._id);
+      }
+
       return {
         success: true,
-        deleted: result.deletedCount || 0,
-        message: `${result.deletedCount || 0} notifications deleted`
+        deleted,
+        message: `${deleted} notifications deleted`
       };
     }
 
-    if (action === 'mark_read') {
-      const result = await Notification.updateMany(baseQuery, {
-        $set: { isRead: true, readAt: new Date() }
+    const updatePayload =
+      action === 'mark_read'
+        ? { $set: { isRead: true, readAt: new Date() } }
+        : { $set: { isRead: false }, $unset: { readAt: '' } };
+
+    const result = await Notification.updateMany(baseQuery, updatePayload);
+    const modified = result.modifiedCount || 0;
+
+    if (modified > 0) {
+      emitSafe(emitNotificationsRefresh, user._id, {
+        reason: 'bulk',
+        action,
+        notificationIds: normalizedIds
       });
-      return {
-        success: true,
-        updated: result.modifiedCount || 0,
-        message: `${result.modifiedCount || 0} notifications marked as read`
-      };
-    }
 
-    const result = await Notification.updateMany(baseQuery, {
-      $set: { isRead: false },
-      $unset: { readAt: '' }
-    });
+      await broadcastUnreadCount(user._id);
+    }
 
     return {
       success: true,
-      updated: result.modifiedCount || 0,
-      message: `${result.modifiedCount || 0} notifications marked as unread`
+      updated: modified,
+      message: `${modified} notifications marked as ${action === 'mark_read' ? 'read' : 'unread'}`
     };
   } catch (error) {
     throw error;

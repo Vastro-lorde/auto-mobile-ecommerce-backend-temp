@@ -1,6 +1,6 @@
-# CarKobo API - Node.js Migration
+# Car-Ecommerce API - Node.js Migration
 
-CarKobo car marketplace API migrated from Django to Node.js with Express.js and MongoDB.
+Car-Ecommerce marketplace API migrated from Django to Node.js with Express.js and MongoDB.
 
 ## 🚀 Features
 
@@ -27,7 +27,7 @@ CarKobo car marketplace API migrated from Django to Node.js with Express.js and 
 1. **Clone and install dependencies:**
 ```bash
 git clone <repository-url>
-cd carkobo-api
+cd car-ecommerce-api
 npm install
 ```
 
@@ -40,7 +40,7 @@ NODE_ENV=development
 PORT=5000
 
 # MongoDB Atlas
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/carkobo
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/car-ecommerce
 
 # JWT
 JWT_SECRET=your_super_secret_jwt_key_here
@@ -57,7 +57,7 @@ EMAIL_HOST=live.smtp.mailtrap.io
 EMAIL_PORT=2525
 EMAIL_HOST_USER=api
 EMAIL_HOST_PASSWORD=your_password
-DEFAULT_FROM_EMAIL=noreply@carkobo.com
+DEFAULT_FROM_EMAIL=noreply@car-ecommerce.com
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your_google_client_id
@@ -253,4 +253,4 @@ The API includes:
 
 ---
 
-**CarKobo API v1.0.0** - Built with ❤️ using Node.js, Express.js & MongoDB
+**Car-Ecommerce API v1.0.0** - Built with ❤️ using Node.js, Express.js & MongoDB

@@ -7,9 +7,11 @@ const conversationRoutes = require('./conversations');
 const notificationRoutes = require('./notifications');
 const savedListingRoutes = require('./savedListings');
 const savedListingGroupRoutes = require('./savedListingGroups');
+const storageRoutes = require('./storage');
+const env = require('../config/env');
 
-const API_BASE_PATH = process.env.API_BASE_PATH || '/api';
-const DEFAULT_API_VERSION = process.env.API_VERSION || 'v1';
+const API_BASE_PATH = env.app.basePath || '/api';
+const DEFAULT_API_VERSION = env.app.version || 'v1';
 
 const normalizeVersion = (version) => {
   if (!version) {
@@ -31,7 +33,8 @@ const ROUTES = [
   { path: '/conversations', router: conversationRoutes },
   { path: '/notifications', router: notificationRoutes },
   { path: '/saved-listings', router: savedListingRoutes },
-  { path: '/saved-listing-groups', router: savedListingGroupRoutes }
+  { path: '/saved-listing-groups', router: savedListingGroupRoutes },
+  { path: '/storage', router: storageRoutes }
 ];
 
 const createVersionedRouter = () => {
